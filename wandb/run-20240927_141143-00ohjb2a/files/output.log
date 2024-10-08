@@ -1,0 +1,60 @@
+  0%|                                                                                                                                                                | 0/40 [00:00<?, ?it/s]/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/bitsandbytes/autograd/_functions.py:322: UserWarning: MatMul8bitLt: inputs will be cast from torch.float32 to float16 during quantization
+  warnings.warn(f"MatMul8bitLt: inputs will be cast from {A.dtype} to float16 during quantization")
+/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/torch/utils/checkpoint.py:295: FutureWarning: `torch.cpu.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cpu', args...)` instead.
+  with torch.enable_grad(), device_autocast_ctx, torch.cpu.amp.autocast(**ctx.cpu_autocast_kwargs):  # type: ignore[attr-defined]
+  2%|███▊                                                                                                                                                    | 1/40 [00:46<30:06, 46.32s/it]Traceback (most recent call last):
+  File "main.py", line 47, in <module>
+    fire.Fire(main)
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/fire/core.py", line 143, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/fire/core.py", line 477, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/fire/core.py", line 693, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+  File "main.py", line 9, in main
+    finetune.train(
+  File "/home/user/chaehee/llama_project/finetune.py", line 279, in train
+    trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/transformers/trainer.py", line 1624, in train
+    return inner_training_loop(
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/transformers/trainer.py", line 1961, in _inner_training_loop
+    tr_loss_step = self.training_step(model, inputs)
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/transformers/trainer.py", line 2911, in training_step
+    self.accelerator.backward(loss)
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/accelerate/accelerator.py", line 1999, in backward
+    self.scaler.scale(loss).backward(**kwargs)
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/torch/_tensor.py", line 521, in backward
+    torch.autograd.backward(
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/torch/autograd/__init__.py", line 289, in backward
+    _engine_run_backward(
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/torch/autograd/graph.py", line 768, in _engine_run_backward
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "main.py", line 47, in <module>
+    fire.Fire(main)
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/fire/core.py", line 143, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/fire/core.py", line 477, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/fire/core.py", line 693, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+  File "main.py", line 9, in main
+    finetune.train(
+  File "/home/user/chaehee/llama_project/finetune.py", line 279, in train
+    trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/transformers/trainer.py", line 1624, in train
+    return inner_training_loop(
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/transformers/trainer.py", line 1961, in _inner_training_loop
+    tr_loss_step = self.training_step(model, inputs)
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/transformers/trainer.py", line 2911, in training_step
+    self.accelerator.backward(loss)
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/accelerate/accelerator.py", line 1999, in backward
+    self.scaler.scale(loss).backward(**kwargs)
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/torch/_tensor.py", line 521, in backward
+    torch.autograd.backward(
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/torch/autograd/__init__.py", line 289, in backward
+    _engine_run_backward(
+  File "/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/torch/autograd/graph.py", line 768, in _engine_run_backward
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+KeyboardInterrupt

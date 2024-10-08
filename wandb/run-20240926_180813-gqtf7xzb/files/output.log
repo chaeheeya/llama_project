@@ -1,0 +1,50 @@
+  0%|                                                                                                                                                  | 0/40 [00:00<?, ?it/s]/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/bitsandbytes/autograd/_functions.py:322: UserWarning: MatMul8bitLt: inputs will be cast from torch.float32 to float16 during quantization
+  warnings.warn(f"MatMul8bitLt: inputs will be cast from {A.dtype} to float16 during quantization")
+/home/user/anaconda3/envs/ch_llm/lib/python3.8/site-packages/torch/utils/checkpoint.py:295: FutureWarning: `torch.cpu.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cpu', args...)` instead.
+  with torch.enable_grad(), device_autocast_ctx, torch.cpu.amp.autocast(**ctx.cpu_autocast_kwargs):  # type: ignore[attr-defined]
+
+
+
+
+
+
+
+
+
+ 25%|██████████████████████████████████▎                                                                                                      | 10/40 [07:45<23:16, 46.54s/it]
+
+
+
+
+
+
+
+
+
+
+ 50%|████████████████████████████████████████████████████████████████████▌                                                                    | 20/40 [15:30<15:32, 46.62s/it]
+
+
+
+
+
+
+
+
+
+
+ 75%|██████████████████████████████████████████████████████████████████████████████████████████████████████▊                                  | 30/40 [31:05<16:39, 99.97s/it]
+
+
+
+
+
+
+
+
+
+
+100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 40/40 [48:14<00:00, 72.36s/it]
+{'loss': 13346.6094, 'grad_norm': 0.7472740411758423, 'learning_rate': 0.0002, 'epoch': 4.9}
+{'train_runtime': 2897.4833, 'train_samples_per_second': 1.798, 'train_steps_per_second': 0.014, 'train_loss': 12004.26201171875, 'epoch': 4.9}
+ If there's a warning about missing keys above, please disregard :)

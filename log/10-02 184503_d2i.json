@@ -1,0 +1,37 @@
+[
+    {
+        "instruction": "System: Hi!\nSystem: I'm here to help you chose a movie!\nUser: Terrific\nSystem: What are some genres you like?\nSystem: What was the last movie you saw?\nUser: the last movie i saw in the theater was  Hustlers  .\nUser: I generally like comedy, drama and documentaries",
+        "input": "",
+        "topic_item": "Hustlers (2019)",
+        "generated_output": "Good Will Hunting (1997)",
+        "is_hit": false
+    },
+    {
+        "instruction": "System: Hi!\nSystem: I'm here to help you chose a movie!\nUser: Terrific\nSystem: What are some genres you like?\nSystem: What was the last movie you saw?\nUser: the last movie i saw in the theater was  Hustlers  .\nUser: I generally like comedy, drama and documentaries\nSystem: It definitely has the drama aspect, did it leave you wanting more or was it not exactly what you were looking for?\nUser: I liked it,  it wasn't the most high-brow movie i've ever seen but it was fun.\nUser: I like to just enjoy\nSystem: And what are your thoughts on action in film?\nUser: I like some action.\nUser: Just not too violent",
+        "input": "",
+        "topic_item": "Deadpool (2016)",
+        "generated_output": "Fast & Furious Presents: Hobbs & Shaw (2019)",
+        "is_hit": false
+    },
+    {
+        "instruction": "System: Hi!\nSystem: I'm here to help you chose a movie!\nUser: Terrific\nSystem: What are some genres you like?\nSystem: What was the last movie you saw?\nUser: the last movie i saw in the theater was  Hustlers  .\nUser: I generally like comedy, drama and documentaries\nSystem: It definitely has the drama aspect, did it leave you wanting more or was it not exactly what you were looking for?\nUser: I liked it,  it wasn't the most high-brow movie i've ever seen but it was fun.\nUser: I like to just enjoy\nSystem: And what are your thoughts on action in film?\nUser: I like some action.\nUser: Just not too violent\nUser: It could be.\nUser: I understand Deadpool was very funny  I like funny\nSystem: Haha it definitely was, I think I have a suggestion for you though\nUser: Cool  Whats that?",
+        "input": "",
+        "topic_item": "A Beautiful Day in the Neighborhood (2019)",
+        "generated_output": "Deadpool (2016)",
+        "is_hit": false
+    },
+    {
+        "instruction": "System: Hi.\nSystem: My name is Becca.\nSystem: I'm here to help you find a movie trailer today.\nSystem: Would you mind starting by telling me your name?\nUser: Hey Becca!\nUser: I'm Erica\nSystem: Hi Erica.\nSystem: It's so nice to meet you!\nUser: Thank you - you as well!\nUser: Can you help me find a movie?\nSystem: I will try my best!\nSystem: What was the last movie you watched?\nUser: Skyscraper !\nSystem: Oh that movie was awesome!",
+        "input": "",
+        "topic_item": "The Rock (1996)",
+        "generated_output": "Skyscraper (2018)",
+        "is_hit": false
+    },
+    {
+        "instruction": "System: Hi.\nSystem: My name is Becca.\nSystem: I'm here to help you find a movie trailer today.\nSystem: Would you mind starting by telling me your name?\nUser: Hey Becca!\nUser: I'm Erica\nSystem: Hi Erica.\nSystem: It's so nice to meet you!\nUser: Thank you - you as well!\nUser: Can you help me find a movie?\nSystem: I will try my best!\nSystem: What was the last movie you watched?\nUser: Skyscraper !\nSystem: Oh that movie was awesome!\nUser: You've seen it?!\nUser: It was SO good.\nUser: I've actually seen it a few times.\nUser: What was your favorite part?\nSystem: I'm a tech nerd so the specs about the actual building, and then watching the tour of the building was amazing.\nSystem: The architecture was so detailed.\nUser: It was !\nUser: I loved how they showed detail about the massive building as well.\nUser: It truly was a beautiful building.\nUser: Have you seen any good movies that are similar to Skyscraper?\nSystem: Yes.\nSystem: I know of two big ones.\nSystem: They are a few years old.",
+        "input": "",
+        "topic_item": "San Andreas (2015)",
+        "generated_output": "Inception (2010)",
+        "is_hit": false
+    }
+]
