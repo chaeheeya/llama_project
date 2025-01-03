@@ -1,17 +1,23 @@
 import json
 import os.path as osp
 from typing import Union
+from utils.args import parse_args
 
+args = parse_args()
 
 class Prompter(object):
     __slots__ = ("template", "_verbose")
 
     def __init__(self, template_name: str = "", verbose: bool = False):
         self._verbose = verbose
-        if not template_name:
-            template_name = "prompt"
         
-        file_name = osp.join("/home/user/chaehee/llama_project/templates", f"{template_name}.json")
+        if args.task == "d2i": 
+            template_name = "d2i_prompt_template"
+        if args.task == "d2r":
+            template_name = "d2r_prompt_template"
+    
+        
+        file_name = osp.join("/home/user/chaehee/prefer_optim/llama/templates", f"{template_name}.json")
         # /home/user/chaehee/llama_project/templates/prompt.json
         if not osp.exists(file_name):
             raise ValueError(f"Can't read prompt template {file_name}")

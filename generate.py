@@ -1,3 +1,4 @@
+from math import exp, log
 import os
 import sys
 
@@ -15,16 +16,19 @@ import torch.nn.functional as F
 from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
 
-from datasets import load_dataset
-import transformers
 from peft import PeftModel
-from transformers import GenerationConfig, LlamaForCausalLM, LlamaTokenizer
+from transformers import GenerationConfig, LlamaForCausalLM, LlamaTokenizer, BitsAndBytesConfig
 
 from utils.callbacks import Stream, Iteratorize
 from utils.prompter import Prompter
 from utils.args import parse_args
+from utils.dataset import Test_CRS_Dataset
 
+from nltk.translate.bleu_score import sentence_bleu
+from transformers import DataCollatorForSeq2Seq
+from collections import defaultdict
 
+# device 설정
 if torch.cuda.is_available():
     device = "cuda"
 else:
@@ -37,39 +41,250 @@ except:  # noqa: E722
     pass
 
 
-def test(
-    load_8bit: bool = False,
-    base_model: str = "",
-    lora_weights: str = "/home/user/chaehee/llama_project/output",
-    prompt_template: str = "prompt",  # The prompt template to use, will default to alpaca.
-    server_name: str = "0.0.0.0",  # Allows to listen on all interfaces by providing '0.
-    share_gradio: bool = False,
+# def prompter_tokenizer_loader(base_model: str, prompt_template: str):
+#     prompter = Prompter(prompt_template)
+#     tokenizer = LlamaTokenizer.from_pretrained(base_model)
+#     tokenizer.padding_side = 'left'
+#     return prompter, tokenizer
 
-    test_on_inputs: bool = False,
-    add_eos_token: bool = False,
+# 프롬프트, 토크나이저 로드
+# tokenizer = prompter_tokenizer_loader(args.base_model, args.prompt_template)
+
+
+def test_data_load(test_data_path):
+        print("test datasdt loading: ", test_data_path)
+        test_data = json.load(open(test_data_path, 'r', encoding='utf-8'))
+        return test_data
+    
+    
+def gen_prompt(tokenizer, prompter, data): # 배치별로 프롬프트 만들어주기
+    # instruction = test_dataset['instruction']
+    # input = test_dataset['input']
+    # label = test_dataset['output']
+
+    # print("\nDataset 길이: ", len(test_dataset), "\n")
+    # # prompt 생성하기 & 모델에 들어갈 입력 만들어주기
+    # start_index = batch_size * iteration
+    # if len(test_dataset)-start_index < batch_size:
+    #     end_index = len(test_dataset)
+    # else:
+    #     end_index = start_index + batch_size
+    # print("slicing index: ",start_index, end_index)
+
+    # batch = test_dataset[start_index:end_index]
+    # # print("batch: ", batch)
+    
+    dialogs = [i for i in data['dialog']] # 배치 내의 샘플 instruction 저장
+    # input_prompts = [i for i in data['input']] # 배치 내의 샘플 input 저장
+    full_prompt = [i for i in data['full_prompt']] # 배치 내의 label 저장
+    
+    prompts = []
+    for dialog in dialogs:
+        tokenizing_dialog = tokenizer(dialog).input_ids[-410:]
+        dialog = tokenizer.decode(tokenizing_dialog)
+    
+        prompt = prompter.generate_prompt(dialog)
+        prompts.append(prompt)
+        
+       
+    # prompts에 저장된 배치 프롬프트 전체 토큰화
+    tokenizer.padding_side='left'
+    inputs_token = tokenizer(prompts, padding = True, return_tensors="pt")
+    input_ids = inputs_token["input_ids"].to(device)
+    attention_mask = inputs_token["attention_mask"].to(device)
+    print(inputs_token["input_ids"].size())
+
+    return dialogs, input_ids, attention_mask, full_prompt
+
+
+def model_generation(args,
+                     input_ids,
+                     attention_mask,
+                     model,
+                     tokenizer,
+                     prompter, 
+                     repetition_penalty=4.8,
+                     stream_output=False,
+                     **kwargs,):
+     
+    # GenerationConfig 설정
+        generation_config = GenerationConfig(
+            do_sample = args.do_sample, # greedy search: False 
+            num_beams=args.num_beams,
+            num_return_sequences = args.num_return_sequences,
+            temperature=args.temperature,
+            top_p=args.top_p,
+            top_k=args.top_k,
+            # repetition_penalty=float(repetition_penalty),
+            **kwargs,
+        )
+
+        with torch.no_grad():
+            generation_output = model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                generation_config=generation_config,
+                return_dict_in_generate=True,
+                output_scores=True,
+                max_new_tokens=args.max_new_tokens,
+            )
+
+            # print(generation_output.sequences)
+            # print(generation_output.sequences[0])
+
+        # print("generation output: ", len(generation_output.sequences), "\n\n\n")
+        generated_output = tokenizer.batch_decode(generation_output.sequences, skip_special_tokens=True) # 텐서 (배치사이즈 * 시퀀스길이)
+        # print("Batch size:", len(generated_output))  # 배치 크기 확인
+
+        # print(generated_output)
+        
+        # 배치 내 데이터에 대해 생성된 응답 한개씩 저장
+        responses_all = [prompter.get_response(i) for i in generated_output]
+
+        responses = [] # 데이터에 대한 생성 결과 num_return_sequences 개수만큼 리스트에 저장
+        for idx in range(input_ids.size(0)):
+            s_index = idx*args.num_return_sequences
+            e_index = s_index+args.num_return_sequences
+            # print("generation 결과:", responses_all[s_index:e_index])
+            responses.append(responses_all[s_index:e_index]) # response 각각이 리스트로 저장됨 (이중리스트) -> responses = [[response] * len(responses_all)]
+
+        return responses
+
+
+              
+def hit_score_cal(outputs, label, topk): # 하나의 샘플에 대해서 계산산
+    hit_topk = [0] * len(topk)
+    for idx, k in enumerate(topk):
+        hit_topk[idx] = 1 if label in outputs[:k] else 0
+    return hit_topk
+
+        
+def n_gram_cal(output, label, n):
+    output = ','.join(str(s) for s in output) # 리스트 -> str로 변환
+    candidate_list = list(output.split())
+    reference_list = list(label.split())
+
+    n_gram_list_candidiate = []
+    n_gram_list_reference= []
+
+    # candidate list와 reference list n-gram 덩어리 만들기
+    for idx in range(0, len(candidate_list) - n + 1):
+        start = idx
+        end = idx + n
+        n_gram = candidate_list[start:end]
+        n_gram_list_candidiate.append(tuple(n_gram))  # 튜플로 변환
+        # print("candidate_n_gram:", n_gram_list_candidiate)
+
+    for idx in range(0, len(reference_list) - n + 1):
+        start = idx
+        end = idx + n
+        n_gram = reference_list[start:end]
+        n_gram_list_reference.append(tuple(n_gram))
+        # print("reference_n_gram:", n_gram_list_reference)
+
+    # reference에서 각 단어들이 몇번 등장하는지 계산
+    reference_dict = {}
+    for word in n_gram_list_reference:
+        counting: int = 0
+        for element in n_gram_list_reference:
+            if word == element:
+                counting += 1
+        reference_dict[word] = counting
+    # print(reference_dict)
+
+    # candidate 문장에서 각 단어가 몇번 등장했는지 카운트
+    candidate_dict = {}
+    for word in n_gram_list_candidiate:
+        counting: int = 0
+        for element in n_gram_list_candidiate:
+            if word == element:
+                counting += 1
+        candidate_dict[word] = counting
+    # print(candidate_dict)
+
+    # candidate value의 값들 구하기
+    candidate_sum = 0
+    for value in list(candidate_dict.values()):
+        candidate_sum += value
+
+
+    # Modified n-gram Precision 구하기
+    
+    per_precision = 0
+    for key in candidate_dict.keys():
+        if key not in reference_dict.keys():
+            per_precision += 0
+
+        else:
+            if candidate_dict[key] > reference_dict[key]:
+                # print(reference_dict[key])
+                per_precision += reference_dict[key]
+                # precision += per_precision
+            else:
+                # print(candidate_dict[key])
+                per_precision += candidate_dict[key]
+                # precision += per_precision
+
+    print(f"{n}_gram per_precison: {per_precision}, {candidate_sum}")
+    return per_precision, candidate_sum
+
+    # precision = 0.0
+    # for key in candidate_dict.keys():
+    #     if key not in reference_dict.keys():
+    #         per_precision = 0.0
+
+    #     else:
+    #         if candidate_dict[key] > reference_dict[key]:
+    #             # print(reference_dict[key])
+    #             per_precision = reference_dict[key] 
+    #             precision += per_precision
+    #         else:
+    #             # print(candidate_dict[key])
+    #             per_precision = candidate_dict[key] 
+    #             precision += per_precision
+
+    # print(f"{n}_gram precison: {precision * 100:.2f}%")
+    # return precision, candidate_sum
+    
+
+
+def test(
+    args,
+    base_model: str = "",
+    lora_weights: str = "",
+    prompt_template: str = "",  
+    
     test_data: str = "", # data path 입력
     batch_size: int = 0,
 
     # generation config
-    temperature: float = 0.1,
-    top_p: float = 0.75,
-    top_k: int = 1,
+    temperature: float = 0.0,
+    top_p: float = 0.0,
+    top_k: int = 0,
     num_beams: int= 0,
+    
 ):
+    print("argument: ", base_model, lora_weights, prompt_template, test_data, batch_size, num_beams)
+    prompter = Prompter(args.prompt_template)
+    tokenizer = LlamaTokenizer.from_pretrained(args.base_model)
+    
+    tokenizer.padding_side = 'left'
+    
+    # 모델 입력
     base_model = base_model or os.environ.get("BASE_MODEL", "")
     assert (
         base_model
     ), "Please specify a --base_model, e.g. --base_model='meta-llama/Llama-2-7b-chat-hf'"
-
-    # 프롬프트 
-    prompter = Prompter(prompt_template)
-    tokenizer = LlamaTokenizer.from_pretrained(base_model)
     
     # 모델 로드
+    load_8bit = False,
     if device == "cuda":
+        quantization_config = BitsAndBytesConfig(
+        load_in_8bit=True
+    )
         model = LlamaForCausalLM.from_pretrained(
             base_model,
-            load_in_8bit=load_8bit,
+            quantization_config = quantization_config,
             torch_dtype=torch.float16,
             device_map={"": device},
         )
@@ -108,223 +323,136 @@ def test(
     model.config.eos_token_id = 2
 
     if not load_8bit:
-        model.half()  # seems to fix bugs for some users.
+        model.half()
+        #model.bfloat16() #model.half()  # seems to fix bugs for some users.
 
     model.eval()
     # if torch.__version__ >= "2" and sys.platform != "win32":
     #     model = torch.compile(model)
 
     
-    def test_data_load(test_data_path):
-        print(test_data_path,"입니다용요요요ㅛ요요요용")
-        test_data = json.load(open("/home/user/chaehee/llama_project/data/test_dataset.json", 'r', encoding='utf-8'))
-        # test_data = load_dataset("json", data_files='/home/user/chaehee/llama_project/data/test_dataset.json')
-        # print(test_data[0])
-        return test_data
-    
-    
-    def gen_prompt(test_dataset, batch_size, iteration): # 배치별로 프롬프트 만들어주기
-        # instruction = test_dataset['instruction']
-        # input = test_dataset['input']
-        # label = test_dataset['output']
-
-        # prompt 생성하기 & 모델에 들어갈 입력 만들어주기
-        start_index = batch_size * iteration
-        if len(test_dataset)-start_index < batch_size:
-            end_index = len(test_dataset)
-        else:
-            end_index = start_index + batch_size
-
-        batch = test_dataset[start_index:end_index]
-        
-        instructions = [i['instruction']for i in batch]
-        input_prompt = [i['input']for i in batch]
-        labels = [i['output']for i in batch]
-        
-        prompts = []
-        for data in batch:
-            # dialog truncation -> token 기준 410자
-            instruction = data['instruction']
-            inputs = data['input']
-            tokenized_instruction_len = len(tokenizer(instruction).input_ids)
-            
-            if tokenized_instruction_len > 410:
-                tokenizing_instruction = tokenizer(instruction, padding=True).input_ids[-410:]
-                instruction = tokenizer.decode(tokenizing_instruction)
-            
-            prompt = prompter.generate_prompt(instruction, inputs)
-            prompts.append(prompt)
-            
-        # 프롬프트 전체 토큰화
-        tokenizer.padding_side='left'
-        inputs_token = tokenizer(prompts, padding = True, return_tensors="pt")
-        input_ids = inputs_token["input_ids"].to(device)
-        attention_mask = inputs_token["attention_mask"].to(device)
-        print(inputs_token["input_ids"].size())
-
-        return instructions, input_prompt, input_ids, attention_mask, labels
-    
-    
-    def model_generation(input_ids,
-                        attention_mask,
-                        model,
-                        batch_size, 
-                        temperature=0.8,
-                        top_p=0.7,
-                        top_k=3,
-                        num_beams=5,
-                        num_return_sequences=3,
-                        max_new_tokens=256,
-                        repetition_penalty=4.8,
-                        stream_output=False,
-                        **kwargs,):
-        
-        # GenerationConfig 설정
-            generation_config = GenerationConfig(
-                do_sample = True, # greedy search: False 
-                num_beams=num_beams,
-                num_return_sequences = num_return_sequences,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                # repetition_penalty=float(repetition_penalty),
-                **kwargs,
-            )
-
-            # print("top-k, top-p, num_beams: ", top_k, top_p, num_beams)
-
-            generate_params = {
-                "input_ids": input_ids,
-                "generation_config": generation_config,
-                "return_dict_in_generate": True,
-                "output_scores": True,
-                "max_new_tokens": max_new_tokens,
-        }
-            
-            with torch.no_grad():
-                generation_output = model.generate(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    generation_config=generation_config,
-                    return_dict_in_generate=True,
-                    output_scores=True,
-                    max_new_tokens=max_new_tokens,
-                )
-
-                # print(generation_output.sequences)
-                # print(generation_output.sequences[0])
-
-            # print("generation output: ", len(generation_output.sequences), "\n\n\n")
-            generated_output = tokenizer.batch_decode(generation_output.sequences, skip_special_tokens=True) # 텐서 (배치사이즈 * 시퀀스길이)
-            # print("Batch size:", len(generated_output))  # 배치 크기 확인
-
-            # print(generated_output)
-            responses_all = [prompter.get_response(i) for i in generated_output]
-
-            responses = [] # 데이터에 대한 생성 결과 리스트에 저장
-            for idx in range(0, batch_size):
-                s_index = idx*num_return_sequences
-                e_index = s_index+num_return_sequences
-                print(responses_all[s_index:e_index])
-                responses.append(responses_all[s_index:e_index])
-
-            # responses = [[responses[i] for i in range(num_return_sequences)] for __ in batch_size]
-            return responses
-    
-
-    def check_hit(outputs, label):
-        for output in outputs:
-            output = ' '.join(output.strip().lower().split())
-            label = ' '.join(label.strip().lower().split())
-
-            if output in label:
-                return True
-            else:
-                return False
-           
-
-    def write_log(instruction, input, label, response, is_hit, log_data):
-        # 로그 데이터 저장
-        log_data.append({
-            "instruction": instruction,
-            "input": input,
-            "topic_item": label,
-            "generated_output": response,
-            "is_hit": is_hit
-        })
-
-        return log_data
-    
-    args = parse_args()
-    
     if test_data:
-        hit = 0
         total = 0
-        log_data = []
+        # hit score 계산
+        topk=[1,3,5,10]
+        hit_topk_total = [0] * len(topk)
         
-        # log 저장할 파일 만들기
+        # bleu score 계산
+        one_gram = 0.0
+        two_gram = 0.0
+        three_gram = 0.0
+        four_gram = 0.0
+        
+        one_precision = 0.0
+        two_precision = 0.0
+        three_precision = 0.0
+        four_precision = 0.0
+        
+        # log 저장할 파일 만들기    
         mdhm = str(datetime.datetime.now(timezone('Asia/Seoul')).strftime('%y%m%d-%H%M'))
         if args.log_name == '':
-            log_name = mdhm + '_' + 'd2i.json'
+            if args.task=="d2i":
+                log_name = mdhm + '_d2i_' + args.lora_weights+'.json'
+            elif args.task=="d2r":
+                log_name = mdhm + '_d2r_' + args.lora_weights+'.json'
+                
         else:
             log_name = args.log_name
                 
-        args.log_file = open(os.path.join('/home/user/chaehee/llama_project/log/', log_name), 'a', buffering=1, encoding='UTF-8')
+        args.log_file = open(os.path.join('/home/user/chaehee/prefer_optim/llama/log/', log_name), 'a', buffering=1, encoding='UTF-8')
 
         # 데이터 로드
-        test_dataset = test_data_load(test_data) # 텐서로 바뀜
-        dataset_size = len(test_dataset)
+        test_dataset = Test_CRS_Dataset(args, test_data, tokenizer, prompter)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, collate_fn=test_dataset.my_collate_fn)
 
-        iteration = 0
-        for __ in tqdm(range(0, dataset_size, batch_size),  bar_format='{percentage:3.0f} % | {bar:23} {r_bar}'):
 
-            # 배치 생성 및 프롬프트 만들기
-            instructions, inputs, input_ids, attention_mask, labels = gen_prompt(test_dataset, batch_size, iteration) # 배치 내 데이터에 대해서 instruction, input, label 모아둔것
-            iteration += 1
-            # Generation
-            responses = model_generation(input_ids, attention_mask, model, batch_size)
+        #  배치 크기별로 실행
+        for data in tqdm(test_loader, bar_format='{percentage:3.0f} % | {bar:23} {r_bar}'):
+            dialogs = data['instructions'] # don't touch (collate에 instructions라고 설정됨)
+            inputs = data['inputs']
+            topic_items = data['topics'] # don't touch (collate에 topics라고 설정됨)
+            input_ids = data['input_ids'].to(device)
+            attention_mask = data['attention_mask'].to(device)
             
-            # response 추출하기
+            # 배치 크기 만큼의 Generation -> output: (이중 list) [batch_size * [num_return_sequences]]
+            responses = model_generation(args, input_ids, attention_mask, model, tokenizer, prompter, batch_size)
+            
+            # num_return_sequences개 생성, responses에서 하나의 데이터에 대한 response 추출하기 
             for idx, response in enumerate(responses):
-                if len(response)>0:
-                    instruction = instructions[idx]
-                    input = inputs[idx]
-                    response = responses[idx] 
-                    label = labels[idx]
+                instruction = dialogs[idx]
+                topic_item = topic_items[idx]
+                # input = inputs[idx]
+                if args.task=="d2i":
+                    # # hit 계산
+                    # is_hit = check_hit(response, label)
+                    # if is_hit:
+                    #     hit += 1
+                    # total += 1
+                    # hit_score = hit / total
+                    # print("hit_score: ", hit_score)
+                    
+                    hit_topk = hit_score_cal(response, topic_item, topk) # 각 샘플에 대한 hit@1, hit@2, hit@3를 계산
+                    total+=1
+                    
+                    # 누적 hit@1, hit@2, hit@3
+                    hit_topk_total = [i+j for i,j in zip(hit_topk_total, hit_topk)]
+                    hit_topk_avg = [sum / total for sum in hit_topk_total]
 
-                # hit 계산
-                is_hit = check_hit(response, label)
-                if is_hit:
-                    hit += 1
-                total += 1
-                hit_score = hit / total
-
-                # log 기록
-                args.log_file.write(json.dumps(
-                    {
-                        "instruction:": instruction,
-                        "input": input,
-                        "topic_item": label,
-                        "generated_output": response,
-                        "hit_score": hit_score
-                    }, ensure_ascii=False, indent=4) + '\n')
+                    hit_score = " | ".join(["Hit@%d_score:%.5f" % (topk[idx], i) for idx, i in enumerate(hit_topk_avg)])
+                    # print(hit_score)
+                                        
+                    # hit score 기록
+                    args.log_file.write(json.dumps(
+                        {
+                            "instruction:": instruction,
+                            "topic_item": topic_item,
+                            "generated_output": response,
+                            "hit_score": hit_score
+                        }, ensure_ascii=False, indent=4) + '\n')
                 
-                # log_data = write_log(instruction, input, label, response, hit_score, log_data)          
-        
-        # # log 데이터 저장
-        # mdhm = str(datetime.datetime.now(timezone('Asia/Seoul')).strftime('%m-%d %H%M%S'))
-        # log_name = mdhm + '_' + 'd2i.json'
-        # log_path = os.path.join('/home/user/chaehee/llama_project/log/', log_name)
-        # with open(log_path, "w", encoding="utf-8") as f:
-        #     json.dump(log_data, f, ensure_ascii=False, indent=4)
+                    
+                # print(f"Hit score: {hit_score * 100:.4f}%")
 
-        # hit score 계산
-        hit_score = hit / total
-        print(f"Hit score: {hit_score * 100:.4f}%")
                 
+                if args.task=="d2r":
+                    # 각각의 응답에 대한 n-gram 계산
+                    print("n-gram precision 계산")
+                    answer = [answer.split()] # list로 만들어줘야함
+                    total += 1
+                    response = response[0].split() # ''.join(str(s) for s in response).split() # str 
+                    # print(answer, response)
+                    
+                    
+                    one = sentence_bleu(answer, response, weights=(1, 0, 0, 0))
+                    one_precision += one
+                    one_gram = one_precision/total
+                    
+                    two = sentence_bleu(answer, response, weights=(0, 1, 0, 0))
+                    two_precision += two
+                    two_gram = two_precision/total
+                    
+                    three = sentence_bleu(answer, response, weights=(0, 0, 1, 0))
+                    three_precision += three
+                    three_gram = three_precision/total
+                    
+                    four = sentence_bleu(answer, response, weights=(0, 0, 0, 1))
+                    four_precision += four
+                    four_gram = four_precision/total
+                    
+                    n_gram = f'{one_gram:.3f} | {two_gram:.3f} | {three_gram:.3f} | {four_gram:.3f}'                    
+                    
+                    # n-gram 기록
+                    args.log_file.write(json.dumps(
+                        {
+                            "instruction:": instruction,
+                         # /"input": input,
+                            "topic_item": ' '.join(sum(answer, [])),
+                            "generated_output": ' '.join(response),
+                            "n_gram": n_gram,
+                            # "BLEU": BLEU_score
+                        }, ensure_ascii=False, indent=4) + '\n')
 
-       
- 
+
 
 if __name__ == "__main__":
     fire.Fire(test)
