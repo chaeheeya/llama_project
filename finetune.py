@@ -1,6 +1,7 @@
 import os
 import sys
 from typing import List
+import random
 
 import fire #Python에서의 모든 객체를 command line interface로 만들어 줌 
 import torch
@@ -38,14 +39,33 @@ class ModelSaveCallback(TrainerCallback):
         if param.model_path == '':
             # mdhm = str(datetime.datetime.now(timezone('Asia/Seoul')).strftime('%y%m%d-%H%M'))
             if param.task == "d2i":
-                if param.dataset_split:
+                if param.dataset_split == 'valid':
                     param.model_path = self.mdhm+'_d2i_'+ param.label+ '_epoch'+str(round(state.epoch)) + '_lr_'+str(param.learning_rate)+'_valid_split'
-                else:
+                if param.dataset_split == 'neutral':
+                    param.model_path = self.mdhm+'_d2i_'+ param.label+ '_epoch'+str(round(state.epoch)) + '_lr_'+str(param.learning_rate)+'_neutral_split'
+                if param.dataset_split == 'overall':
                     param.model_path = self.mdhm+'_d2i_'+ param.label+ '_epoch'+str(round(state.epoch)) + '_lr_'+str(param.learning_rate)+'_overall'
+                if param.dataset_split == 'overall_sampling':
+                    param.model_path = self.mdhm+'_d2i_'+ param.label+ '_epoch'+str(round(state.epoch)) + '_lr_'+str(param.learning_rate)+'overall_sampling_'+str(param.sampling_len)
+                if param.dataset_split == 'with_invalid':
+                    param.model_path = self.mdhm+'_d2i_'+ param.label+ '_epoch'+str(round(state.epoch)) + '_lr_'+str(param.learning_rate)+'with_invalid'
+                if param.dataset_split == 'invalid':
+                    param.model_path = self.mdhm+'_d2i_'+ param.label+ '_epoch'+str(round(state.epoch)) + '_lr_'+str(param.learning_rate)+'invalid'
+                
+                if param.dataset_split == 'invalid_sampling':
+                    param.model_path = self.mdhm+'_d2i_'+ param.label+ '_epoch'+str(round(state.epoch)) + '_lr_'+str(param.learning_rate)+'invalid_sampling'
+                if param.dataset_split == 'valid_sampling':
+                    param.model_path = self.mdhm+'_d2i_'+ param.label+ '_epoch'+str(round(state.epoch)) + '_lr_'+str(param.learning_rate)+'valid_sampling'
+                
+                if param.dataset_split == 'topk':
+                    param.model_path = self.mdhm+'_d2i_'+ param.label+ '_epoch'+str(round(state.epoch)) + '_lr_'+str(param.learning_rate)+'_top'+str(param.topk_valid)+'_'+param.combination
 
            
             elif param.task == "d2r":
                 param.model_path = self.mdhm+'_d2r_'+ 'epoch'+str(round(state.epoch)) + '_lr_'+str(param.learning_rate)
+            
+            elif param.task == "DIP2I":
+                param.model_path = self.mdhm+'_DIP2I_'+ 'epoch'+str(round(state.epoch)) + '_lr_'+str(param.learning_rate)
 
         args.output_dir = os.path.join(args.output_dir, param.model_path)
 
@@ -66,8 +86,8 @@ def train(
     output_dir: str = "",
     # training hyperparams
     batch_size: int = 4,
-    micro_batch_size: int = 1,
     num_epochs: int = 0,
+    micro_batch_size: int = 1,
     learning_rate: float = 0.0,
     cutoff_len: int = 0,
     val_set_size: int = 0,
@@ -125,6 +145,7 @@ def train(
     assert (
         base_model
     ), "Please specify a --base_model, e.g. --base_model='huggyllama/llama-7b'"
+    micro_batch_size = batch_size // args.num_device
     gradient_accumulation_steps = batch_size // micro_batch_size
 
     # 프롬프트 
@@ -171,61 +192,8 @@ def train(
     ) 
     tokenizer.padding_side = "left"  # Allow batched inference
 
-    def tokenize(prompt, add_eos_token=True):
-        # there's probably a way to do this with the tokenizer settings
-        # but again, gotta move fast
-        result = tokenizer(
-            prompt,
-            truncation=True,
-            # max_length=cutoff_len,
-            padding=False,
-            return_tensors=None,
-        )
-        if (
-            result["input_ids"][-1] != tokenizer.eos_token_id
-            # and len(result["input_ids"]) < cutoff_len
-            and add_eos_token
-        ):
-            result["input_ids"].append(tokenizer.eos_token_id) # eos 토큰 추가
-            result["attention_mask"].append(1)
-
-        result["labels"] = result["input_ids"].copy()
-
-        return result
-
-    def generate_and_tokenize_prompt(data_point): # 하나씩 처리?
-        # 대화 자르기
-        data_point["instruction"] = data_point["instruction"]
-        data_point["instruction"]=tokenizer(data_point["instruction"])[-args.cutoff_len:]
-        data_point["instruction"]=tokenizer.decode(data_point["instruction"]['input_ids'])
-        
-        full_prompt = prompter.generate_prompt(
-            data_point["instruction"],
-            data_point["input"],
-            data_point["output"],
-        ) 
-        # 응답을 포함하여 프롬프트를 만들어주고
-        tokenized_full_prompt = tokenize(full_prompt) # 프롬프트를 토큰화
-        
-        if not train_on_inputs:
-            user_prompt = prompter.generate_prompt(
-                data_point["instruction"], data_point["input"]
-            )
-            tokenized_user_prompt = tokenize(user_prompt)
-            user_prompt_len = len(tokenized_user_prompt["input_ids"])
-
-            if add_eos_token:
-                user_prompt_len -= 1
-                
-
-            # user_prompt_len
-            tokenized_full_prompt["labels"] = [
-                -100
-            ] * user_prompt_len + tokenized_full_prompt["labels"][
-                user_prompt_len:
-            ]  # could be sped up, probably
-            # print(tokenized_full_prompt)
-        return tokenized_full_prompt
+    
+    
 
     
     # 모델 로드
@@ -300,6 +268,13 @@ def train(
         model.model_parallel = True
     
     train_dataset = Train_CRS_Dataset(args, data_path, tokenizer, prompter)
+    idx_list = [i for i in range(len(train_dataset.dataset))]
+    random.shuffle(idx_list)
+    train_dataset.dataset = [train_dataset.dataset[i] for i in idx_list]
+    
+    if args.task == 'DIP2I':
+        train_dataset.selected_knowledges = [train_dataset.selected_knowledges[i] for i in idx_list]
+    
     print("train_dataset_size: ", len(train_dataset))
     # print(train_dataset)
     

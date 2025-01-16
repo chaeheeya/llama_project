@@ -13,8 +13,10 @@ class Prompter(object):
         
         if args.task == "d2i": 
             template_name = "d2i_prompt_template"
-        if args.task == "d2r":
+        elif args.task == "d2r":
             template_name = "d2r_prompt_template"
+        elif args.task == "DIP2I":
+            template_name = "DIP2I"
     
         
         file_name = osp.join("/home/user/chaehee/prefer_optim/llama/templates", f"{template_name}.json")
@@ -34,11 +36,12 @@ class Prompter(object):
             self,
             instruction: str,
             input: Union[None, str] = None,
+            input2: Union[None, str] = None,
             label: Union[None, str] = None,
     ) -> str:
         if input:
             res = self.template["prompt_input"].format(
-                instruction=instruction, input=input
+                instruction=instruction, input=input, input2=input2
             )
         else:
             res = self.template["prompt_no_input"].format(

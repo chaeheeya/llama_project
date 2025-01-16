@@ -348,18 +348,20 @@ def test(
         three_precision = 0.0
         four_precision = 0.0
         
-        # log 저장할 파일 만들기    
-        mdhm = str(datetime.datetime.now(timezone('Asia/Seoul')).strftime('%y%m%d-%H%M'))
+        # log 저장할 파일 만들기
+        md = str(datetime.datetime.now(timezone('Asia/Seoul')).strftime('%y%m%d'))
+        md_dirs = os.makedirs(os.path.join('/home/user/chaehee/prefer_optim/llama/log/', md), exist_ok=True)
+        
+        # mdhm = str(datetime.datetime.now(timezone('Asia/Seoul')).strftime('%y%m%d-%H%M'))
         if args.log_name == '':
-            if args.task=="d2i":
-                log_name = mdhm + '_d2i_' + args.lora_weights+'.json'
-            elif args.task=="d2r":
-                log_name = mdhm + '_d2r_' + args.lora_weights+'.json'
-                
+            if args.task == 'DIP2I':
+                log_name = args.lora_weights + '_beam' + str(args.num_beams) + '.json'
+            elif args.task == 'd2i':    
+                log_name = args.lora_weights + '.json'           
         else:
             log_name = args.log_name
                 
-        args.log_file = open(os.path.join('/home/user/chaehee/prefer_optim/llama/log/', log_name), 'a', buffering=1, encoding='UTF-8')
+        args.log_file = open(os.path.join('/home/user/chaehee/prefer_optim/llama/log/', md, log_name), 'a', buffering=1, encoding='UTF-8')
 
         # 데이터 로드
         test_dataset = Test_CRS_Dataset(args, test_data, tokenizer, prompter)
@@ -379,18 +381,10 @@ def test(
             
             # num_return_sequences개 생성, responses에서 하나의 데이터에 대한 response 추출하기 
             for idx, response in enumerate(responses):
-                instruction = dialogs[idx]
+                # instruction = dialogs[idx]
                 topic_item = topic_items[idx]
                 # input = inputs[idx]
-                if args.task=="d2i":
-                    # # hit 계산
-                    # is_hit = check_hit(response, label)
-                    # if is_hit:
-                    #     hit += 1
-                    # total += 1
-                    # hit_score = hit / total
-                    # print("hit_score: ", hit_score)
-                    
+                if "i" in args.task or "I" in args.task: # 아이템 맞추는 경우에 hit score 계산하도록 하기
                     hit_topk = hit_score_cal(response, topic_item, topk) # 각 샘플에 대한 hit@1, hit@2, hit@3를 계산
                     total+=1
                     
@@ -404,7 +398,7 @@ def test(
                     # hit score 기록
                     args.log_file.write(json.dumps(
                         {
-                            "instruction:": instruction,
+                            "instruction:": tokenizer.decode(input_ids[idx], skip_special_tokens=True),
                             "topic_item": topic_item,
                             "generated_output": response,
                             "hit_score": hit_score
